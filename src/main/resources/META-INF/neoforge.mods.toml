@@ -1,5 +1,3 @@
-modLoader="javafml" #mandatory
-loaderVersion="${fml_range}" #mandatory
 license="GPL3"
 issueTrackerURL="https://github.com/ldtteam/Piston-Unlimited/issues/new/choose" #optional
 

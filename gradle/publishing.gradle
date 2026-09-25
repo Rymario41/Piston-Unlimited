@@ -1,0 +1,103 @@
+// Preserve the Maven/CurseForge publication contract previously provided by OPC.
+// Publishing tasks are never part of the ordinary build invocation.
+def setting = { String name ->
+    def envName = name.replaceAll(/([a-z])([A-Z])/, '$1_$2').toUpperCase(Locale.ROOT)
+    providers.gradleProperty(name).orElse(providers.environmentVariable(envName)).getOrElse('')
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+            pom {
+                url = project.githubUrl
+                licenses {
+                    license {
+                        name = 'GNU GENERAL PUBLIC LICENSE Version 3'
+                        url = 'https://www.gnu.org/licenses/gpl-3.0.en.html'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'OrionDevelopment'
+                        name = 'Marc Hermans'
+                        email = 'marc.hermans@ldtteam.com'
+                    }
+                    developer {
+                        id = 'Raycoms'
+                        name = 'Ray Neiheiser'
+                        email = 'ray.neiheiser@ldtteam.com'
+                    }
+                }
+                contributors {
+                    contributor {
+                        name = "Let's Develop Together - Team"
+                        email = 'info@ldtteam.com'
+                    }
+                }
+                scm {
+                    connection = project.gitUrl
+                    developerConnection = project.gitConnectUrl
+                    url = project.projectUrl
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = 'RepoDirectory'
+            url = layout.projectDirectory.dir('repo')
+        }
+        if (providers.environmentVariable('LDTTeamJfrogUsername').isPresent()
+                && providers.environmentVariable('LDTTeamJfrogPassword').isPresent()) {
+            maven {
+                name = 'LDTTeamJfrog'
+                url = 'https://ldtteam.jfrog.io/ldtteam/mods-maven'
+                credentials {
+                    username = providers.environmentVariable('LDTTeamJfrogUsername').get()
+                    password = providers.environmentVariable('LDTTeamJfrogPassword').get()
+                }
+            }
+        }
+        if (setting('githubRepository') && setting('githubUsername') && setting('githubToken')) {
+            maven {
+                name = 'GitHubPackages'
+                url = "https://maven.pkg.github.com/${setting('githubRepository')}"
+                credentials {
+                    username = setting('githubUsername')
+                    password = setting('githubToken')
+                }
+            }
+        }
+    }
+}
+
+def curseToken = setting('curseApiKey') ?: setting('CURSEAPIKEY')
+def curseRelease = setting('curseReleaseType') ?: setting('CURSERELEASETYPE')
+if (project.usesCurse.toBoolean() && curseToken && curseRelease) {
+    apply plugin: 'net.darkhax.curseforgegradle'
+    def curseTask = tasks.register('curseforge', net.darkhax.curseforgegradle.TaskPublishCurseForge) {
+        apiToken = curseToken
+        def artifact = upload(project.curseId, tasks.named('jar'))
+        artifact.addGameVersion(project.minecraftVersion, 'NeoForge', 'client', 'server')
+        project.additionalMinecraftVersions.tokenize(';').each { artifact.addGameVersion(it) }
+        artifact.releaseType = curseRelease
+        artifact.changelog = file('changelog.md')
+        artifact.changelogType = 'markdown'
+        artifact.withAdditionalFile(tasks.named('javadocJar'))
+        artifact.withAdditionalFile(tasks.named('sourcesJar'))
+        project.requiredCurseDependencies.tokenize(';').each { artifact.addRequirement(it) }
+        setting('optionalCurseDependencies').tokenize(';').each { artifact.addOptional(it) }
+        dependsOn tasks.named('build')
+    }
+    tasks.named('publish') { dependsOn curseTask }
+}
+
+// These tasks are invoked by the existing LDTTeam release workflow.
+['Header', 'Footer'].each { part ->
+    def changelogFile = layout.projectDirectory.file('changelog.md').asFile
+    def text = setting("customChangelog${part}") + (part == 'Header' ? '\n\n' : '')
+    tasks.register("outputChangelog${part}") {
+        doLast { changelogFile.append(text, 'UTF-8') }
+    }
+}

@@ -1,2 +1,111 @@
-apply from: 'https://raw.githubusercontent.com/ldtteam/OperaPublicaCreator/ng7/gradle/mod.gradle'
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+    id 'idea'
+    id 'eclipse'
+    id 'net.neoforged.gradle.userdev' version '7.1.39'
+    id 'net.darkhax.curseforgegradle' version '1.3.33' apply false
+}
+
+// Local equivalent of the build facilities used from OperaPublicaCreator/ng7.
+// Toolchain and run configuration follow the official Minecraft 26.3 NeoGradle MDK.
+group = modGroup
+def versionSuffix = providers.gradleProperty('modVersionSuffix').getOrElse('')
+version = "${modVersion}-${exactMinecraftVersion}" + (versionSuffix ? "-${versionSuffix}" : '')
+base.archivesName = modId
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(javaVersion.toInteger())
+    withSourcesJar()
+    withJavadocJar()
+}
+
+tasks.named('wrapper', Wrapper) {
+    gradleVersion = '9.2.1'
+    distributionType = Wrapper.DistributionType.BIN
+}
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+    maven {
+        name = 'LDTTeam - Modding'
+        url = 'https://ldtteam.jfrog.io/ldtteam/modding/'
+    }
+    flatDir { dirs 'libs' }
+}
+
+dependencies {
+    implementation "net.neoforged:neoforge:${forgeVersion}"
+}
+apply from: 'gradle/dependencies.gradle'
+
+sourceSets.main.resources {
+    // Preserve the existing datagen output location.
+    srcDir "src/datagen/generated/${modId}"
+    exclude '**/.cache/**'
+}
+
+minecraft.accessTransformers.file file('src/main/resources/META-INF/accesstransformer.cfg')
+
+runs {
+    configureEach {
+        workingDirectory project.layout.projectDirectory.dir('runs').dir(name)
+        modSource sourceSets.main
+        systemProperty 'forge.logging.markers', ''
+        systemProperty 'forge.logging.console.level', 'info'
+    }
+    client { }
+    server { argument '--nogui' }
+    gameTestServer {
+        systemProperty 'neoforge.enabledGameTestNamespaces', project.modId
+    }
+    clientData {
+        arguments.addAll '--mod', project.modId, '--all',
+                '--output', file("src/datagen/generated/${project.modId}").absolutePath,
+                '--existing', file('src/main/resources').absolutePath
+    }
+}
+
+// Keep the previous entry point while using the modern client datagen launch type.
+tasks.register('runData') {
+    group = 'neogradle runs'
+    description = 'Generates resources using the Minecraft 26.3 client data generator.'
+    dependsOn 'runClientData'
+}
+
+tasks.withType(ProcessResources).configureEach {
+    def metadata = [version: project.version.toString(), forge_range: forge_range,
+                    minecraft_range: minecraft_range, blockUiVersion: blockUiVersion,
+                    structurizeVersion: structurizeVersion]
+    inputs.properties metadata
+    filesMatching('META-INF/neoforge.mods.toml') { expand metadata }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.named('jar', Jar) {
+    manifest.attributes([
+            'Maven-Artifact': "${project.group}:${modId}:${project.version}",
+            'Specification-Title': modId,
+            'Specification-Vendor': 'ldtteam',
+            'Specification-Version': '1',
+            'Implementation-Title': project.name,
+            'Implementation-Version': project.version.toString(),
+            'Implementation-Vendor': 'ldtteam',
+            'Automatic-Module-Name': modId
+    ])
+}
+
+idea.module {
+    downloadSources = true
+    downloadJavadoc = true
+}
+
+apply from: 'gradle/publishing.gradle'
+if (file('gradle/local.gradle').exists()) {
+    apply from: 'gradle/local.gradle'
+}
 
